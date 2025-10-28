@@ -136,7 +136,12 @@
         // Konstanta API
         const MODEL = "gemini-2.5-flash-preview-tts";
         const API_URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
-        const apiKey = ""; // API key akan otomatis disediakan oleh Canvas
+        //
+        // ***************************************************************
+        // PENTING: Untuk deploy ke GitHub Pages, GANTI "" dengan KUNCI API 
+        // yang TELAH DIBATASI (HTTP Referrer) hanya untuk domain GitHub Anda.
+        // ***************************************************************
+        const apiKey = "AIzaSyCnbliV4xcZ8JLRSWQxxX8yXEvJ96NxZFc"; 
 
         // --- MAP BAHASA & SUARA (Disesuaikan dengan permintaan dan suara Gemini TTS) ---
         const LANGUAGE_MAP = {
@@ -405,6 +410,12 @@
                 showStatus("Masukkan teks yang ingin diucapkan terlebih dahulu!", 'warning');
                 return;
             }
+
+            if (!apiKey && window.location.hostname !== 'localhost') {
+                showStatus("❌ ERROR OTENTIKASI: Kunci API tidak disetel. Masukkan Kunci API yang DIBATASI (HTTP Referrer) ke dalam kode sebelum deployment.", 'error');
+                setProcessingState(false);
+                return;
+            }
             
             // Hentikan pemutaran audio sebelumnya
             audioPlayer.pause();
@@ -464,6 +475,7 @@
                     }
                     
                     if (!response.ok) {
+                        // Menggunakan throw error umum untuk menangani semua kegagalan HTTP
                         throw new Error(`API returned status ${response.status}: ${response.statusText}`);
                     }
                     
