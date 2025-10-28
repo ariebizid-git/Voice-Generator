@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generator Suara Teks Multi-Bahasa (TTS) Gemini</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Menggunakan font Inter dari Tailwind default */
+        body {
+            font-family: 'Inter', sans-serif;
+            /* Dark background */
+            background-color: #1f2937; /* Gray 800 */
+        }
+        .container {
+            max-width: 700px;
+            margin: 40px auto;
+            padding: 20px;
+        }
+        /* Style untuk status message box */
+        #status-message {
+            transition: all 0.3s ease;
+        }
+        /* Style custom untuk fokus */
+        .focus-ring {
+            box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.7); /* Blue 400 */
+        }
+        /* Spinner */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-left-color: #ffffff;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 min-h-screen flex items-center justify-center text-white">
+
+    <div class="container bg-gray-800 shadow-2xl p-8 space-y-6 border-t-4 border-blue-500">
+        <header class="text-center">
+            <h1 class="text-3xl font-extrabold text-white">Generator Suara Teks Multi-Bahasa (TTS)</h1>
+            <p class="text-red-400 font-semibold mt-2">Kualitas Suara Sangat Natural (Membutuhkan Koneksi Internet)</p>
+            <!-- Model information removed as requested -->
+        </header>
+
+        <!-- Area Input Teks -->
+        <textarea 
+            id="text-input" 
+            placeholder="" 
+            maxlength="600"
+            class="w-full p-4 border border-gray-600 bg-gray-700 text-white focus:outline-none focus-ring transition-shadow resize-none text-lg" 
+            rows="6"
+        ></textarea>
+        <p id="char-count" class="text-sm text-right text-gray-400">Karakter: 0/600</p>
+
+        <!-- Pilihan Bahasa & Suara -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+            
+            <!-- Pilih Bahasa -->
+            <div>
+                <label for="language-select" class="block text-sm font-medium text-gray-300 mb-1">Pilih Bahasa:</label>
+                <select id="language-select" class="w-full p-2 border border-gray-600 bg-gray-700 text-white focus:outline-none focus-ring"></select> 
+            </div>
+
+            <!-- Pilih Suara -->
+            <div>
+                <label for="voice-select" class="block text-sm font-medium text-gray-300 mb-1">Pilih Karakter Suara:</label>
+                <select id="voice-select" class="w-full p-2 border border-gray-600 bg-gray-700 text-white focus:outline-none focus-ring"></select> 
+            </div>
+        </div>
+
+        <!-- Atur Kecepatan (Pitch dihapus) -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+            <!-- Rate -->
+            <div class="md:col-span-1">
+                <label for="rate-slider" class="block text-sm font-medium text-gray-300 mb-1">Kecepatan (<span id="rate-value">1.0</span>x):</label>
+                <input type="range" id="rate-slider" min="0.5" max="2" value="1.0" step="0.1" class="w-full h-2 bg-gray-600 appearance-none cursor-pointer"> 
+            </div>
+            <!-- Pitch (Telah dihapus) -->
+        </div>
+
+        <!-- Tombol Aksi -->
+        <div class="flex flex-col space-y-3 sm:flex-row sm:space-x-3 sm:space-y-0 pt-4">
+            <button 
+                id="speak-button" 
+                class="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 px-4 shadow-lg transition duration-200 disabled:opacity-50 flex items-center justify-center" 
+            >
+                <span id="speak-icon">Bicara</span>
+                <div id="loading-spinner" class="spinner hidden"></div>
+            </button>
+            <button 
+                id="stop-button" 
+                class="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-4 shadow-lg transition duration-200 disabled:opacity-50" 
+                disabled
+            >
+                Stop
+            </button>
+        </div>
+
+        <!-- Pemutar Audio -->
+        <div id="audio-player-container" class="mt-4 hidden">
+            <label class="block text-sm font-medium text-gray-300 mb-1">Audio Hasil Sintesis:</label>
+            <audio id="audio-player" controls class="w-full bg-gray-700"></audio> 
+        </div>
+
+
+        <!-- Area Pesan Status/Error -->
+        <div id="status-message" class="p-3 mt-4 text-sm text-center bg-yellow-800 text-yellow-200 hidden"> 
+            <!-- Pesan status akan muncul di sini -->
+        </div>
+
+    </div>
+
+    <script>
+        const textInput = document.getElementById('text-input');
+        const languageSelect = document.getElementById('language-select');
+        const voiceSelect = document.getElementById('voice-select');
+        const speakButton = document.getElementById('speak-button');
+        const stopButton = document.getElementById('stop-button');
+        const rateSlider = document.getElementById('rate-slider');
+        const rateValueSpan = document.getElementById('rate-value');
+        // const pitchSlider = document.getElementById('pitch-slider'); // DIHAPUS
+        // const pitchValueSpan = document.getElementById('pitch-value'); // DIHAPUS
+        const statusMessage = document.getElementById('status-message');
+        const charCount = document.getElementById('char-count');
+        const audioPlayer = document.getElementById('audio-player');
+        const audioPlayerContainer = document.getElementById('audio-player-container');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const speakIcon = document.getElementById('speak-icon');
+
+        // Konstanta API
+        const MODEL = "gemini-2.5-flash-preview-tts";
+        const API_URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+        const apiKey = ""; // API key akan otomatis disediakan oleh Canvas
+
+        // --- MAP BAHASA & SUARA (Disesuaikan dengan permintaan dan suara Gemini TTS) ---
+        const LANGUAGE_MAP = {
+            'Bahasa Indonesia': {
+                language_code: 'Bahasa Indonesia',
+                voices: {
+                    // Male (Heru, Bayu, Bima, Raka, Arya)
+                    'Heru (Pria, Ceria & Ramah)': 'Puck', // SWAPPED: Puck
+                    'Bayu (Pria, Santai & Mudah)': 'Charon',
+                    'Bima (Pria, Kuat & Jelas)': 'Orus',
+                    'Raka (Pria, Informatif & Dewasa)': 'Gacrux',
+                    'Arya (Pria, Hangat & Akrab)': 'Sulafat',
+                    // Female (Puri, Mentari, Kirana, Dewi, Sinta)
+                    'Puri (Wanita, Tegas & Profesional)': 'Kore', // SWAPPED: Kore
+                    'Mentari (Wanita, Cerah & Semangat)': 'Zephyr',
+                    'Kirana (Wanita, Easy-going & Lembut)': 'Callirrhoe',
+                    'Dewi (Wanita, Anggun & Bersahaja)': 'Despina',
+                    'Sinta (Wanita, Muda & Bersemangat)': 'Leda',
+                }
+            },
+            'Bahasa Jawa': {
+                language_code: 'Bahasa Indonesia with a Javanese accent', // Instruksi aksen
+                voices: {
+                    'Prio (Pria, Santun & Krama)': 'Orus',
+                    'Asih (Wanita, Ayu & Lembut)': 'Callirrhoe', 
+                }
+            },
+            'Bahasa Bali': {
+                language_code: 'Bahasa Indonesia with a Balinese accent', // Instruksi aksen
+                voices: {
+                    'Wayan (Pria, Santai & Ramah)': 'Puck',
+                    'Luh (Wanita, Ceria & Akrab)': 'Zephyr',
+                }
+            },
+            'English (US)': {
+                language_code: 'English (US accent)',
+                voices: {
+                    'American Male (Clear)': 'Iapetus',
+                    'American Female (Smooth)': 'Despina',
+                    'American Narrator (Informative)': 'Charon',
+                    'American Upbeat (Lively)': 'Sadachbia',
+                    'American Bright (Youthful)': 'Leda',
+                }
+            },
+            'English (UK)': {
+                language_code: 'English (UK accent)',
+                voices: {
+                    'British Male (Firm)': 'Kore',
+                    'British Female (Easy-going)': 'Callirrhoe',
+                    'British Upbeat (Lively)': 'Sadaltager',
+                    'British Clear (Energetic)': 'Erinome',
+                    'British Smooth (Gentle)': 'Vindemiatrix',
+                }
+            },
+            'English (Australia)': {
+                language_code: 'English (Australian accent)',
+                voices: {
+                    'Aussie Male (Friendly)': 'Achird', 
+                    'Aussie Female (Breezy)': 'Aoede',
+                    'Aussie Narrator (Clear)': 'Umbriel',
+                    'Aussie Firm (Forward)': 'Pulcherrima',
+                    'Aussie Casual (Even)': 'Zubenelgenubi',
+                }
+            },
+            'English (India)': {
+                language_code: 'English (Indian accent)',
+                voices: {
+                    'Indian Male (Clear)': 'Rasalgethi',
+                    'Indian Female (Breezy)': 'Aoede',
+                    'Indian Neutral (Even)': 'Schedar',
+                    'Indian Warm (Mature)': 'Gacrux',
+                    'Indian Youthful (Friendly)': 'Achird',
+                }
+            },
+            'English (Singapore)': {
+                language_code: 'English (Singaporean accent)',
+                voices: {
+                    'Singaporean Male (Firm)': 'Alnilam',
+                    'Singaporean Female (Easy-going)': 'Autonoe',
+                    'Singaporean Smooth (Clear)': 'Umbriel',
+                    'Singaporean Bright (Breezy)': 'Aoede',
+                    'Singaporean Neutral (Even)': 'Schedar',
+                }
+            },
+            'English (Rusia)': {
+                language_code: 'Russian (Russian accent)',
+                voices: {
+                    'Russian Male (Firm)': 'Fenrir',
+                    'Russian Female (Clear)': 'Erinome',
+                    'Russian Narrator (Informative)': 'Charon',
+                    'Russian Upbeat (Lively)': 'Sadachbia',
+                    'Russian Smooth (Even)': 'Schedar',
+                }
+            },
+        };
+        
+        // --- FUNGSI UTILITY AUDIO ---
+        
+        /** Mengubah Base64 ke ArrayBuffer */
+        function base64ToArrayBuffer(base64) {
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        /** Utility untuk menulis string ke DataView (untuk header WAV) */
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        /** Mengubah data audio mentah PCM (Signed 16-bit) ke format WAV yang dapat diputar */
+        function pcmToWav(pcm16, sampleRate) {
+            const numChannels = 1;
+            const bitsPerSample = 16;
+            const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+            const blockAlign = numChannels * (bitsPerSample / 8);
+
+            const wavBuffer = new ArrayBuffer(44 + pcm16.length * 2);
+            const view = new DataView(wavBuffer);
+
+            // RIFF identifier
+            writeString(view, 0, 'RIFF');
+            // file length minus 8
+            view.setUint32(4, 36 + pcm16.length * 2, true);
+            // 'WAVE' format
+            writeString(view, 8, 'WAVE');
+            // 'fmt ' chunk identifier
+            writeString(view, 12, 'fmt ');
+            // format chunk length
+            view.setUint32(16, 16, true);
+            // sample format (1 = PCM)
+            view.setUint16(20, 1, true);
+            // channel count
+            view.setUint16(22, numChannels, true);
+            // sample rate
+            view.setUint32(24, sampleRate, true);
+            // byte rate (sample rate * block align)
+            view.setUint32(28, byteRate, true);
+            // block align (num channels * bytes per sample)
+            view.setUint16(32, blockAlign, true);
+            // bits per sample
+            view.setUint16(34, bitsPerSample, true); 
+            // 'data' chunk identifier
+            writeString(view, 36, 'data');
+            // data chunk length
+            view.setUint32(40, pcm16.length * 2, true);
+
+            // PCM data
+            let offset = 44;
+            for (let i = 0; i < pcm16.length; i++, offset += 2) {
+                view.setInt16(offset, pcm16[i], true); // Signed 16-bit little endian
+            }
+
+            return new Blob([wavBuffer], { type: 'audio/wav' });
+        }
+
+
+        // --- FUNGSI UTILITY UI/STATE ---
+
+        /** Menampilkan pesan status/error di UI */
+        function showStatus(message, type = 'warning') {
+            // Hentikan suara jika sedang diputar
+            audioPlayer.pause();
+            audioPlayer.src = '';
+            audioPlayerContainer.classList.add('hidden');
+            
+            // Perbaikan: Pastikan background error dan warning berbeda
+            if (type === 'error') {
+                 statusMessage.className = `p-3 mt-4 text-sm text-center bg-red-900 text-red-200`; 
+            } else {
+                 statusMessage.className = `p-3 mt-4 text-sm text-center bg-yellow-800 text-yellow-200`; 
+            }
+
+            statusMessage.textContent = message;
+            statusMessage.classList.remove('hidden');
+        }
+
+        /** Menyembunyikan pesan status */
+        function hideStatus() {
+            statusMessage.classList.add('hidden');
+        }
+
+        /** Mengubah status tombol dan spinner saat sedang memproses/berbicara */
+        function setProcessingState(isProcessing, isPlaying = false) {
+            speakButton.disabled = isProcessing || isPlaying;
+            stopButton.disabled = isProcessing ? true : !isPlaying; // Stop hanya aktif saat audio diputar
+            textInput.disabled = isProcessing || isPlaying;
+            languageSelect.disabled = isProcessing || isPlaying;
+            voiceSelect.disabled = isProcessing || isPlaying;
+            rateSlider.disabled = isProcessing || isPlaying;
+            // pitchSlider.disabled = isProcessing || isPlaying; // DIHAPUS
+
+            if (isProcessing) {
+                speakIcon.classList.add('hidden');
+                loadingSpinner.classList.remove('hidden');
+            } else {
+                speakIcon.classList.remove('hidden');
+                loadingSpinner.classList.add('hidden');
+            }
+        }
+        
+        /** Memainkan audio yang dihasilkan */
+        function playAudio(blob) {
+            const url = URL.createObjectURL(blob);
+            audioPlayer.src = url;
+            audioPlayerContainer.classList.remove('hidden');
+            audioPlayer.play();
+        }
+
+        // --- PENGATURAN SUARA & INISIALISASI ---
+
+        /** Mengisi dropdown bahasa dan suara */
+        function populateSelectors() {
+            // Isi dropdown Bahasa
+            languageSelect.innerHTML = '';
+            Object.keys(LANGUAGE_MAP).forEach(langName => {
+                const option = document.createElement('option');
+                option.textContent = langName;
+                option.value = langName;
+                languageSelect.appendChild(option);
+            });
+
+            // Set default ke Bahasa Indonesia dan panggil update suara
+            languageSelect.value = 'Bahasa Indonesia'; 
+            updateVoiceList();
+        }
+
+        /** Memperbarui dropdown suara saat bahasa berubah */
+        function updateVoiceList() {
+            voiceSelect.innerHTML = '';
+            const selectedLangName = languageSelect.value;
+            const voices = LANGUAGE_MAP[selectedLangName].voices;
+
+            Object.keys(voices).forEach(voiceName => {
+                const option = document.createElement('option');
+                option.textContent = voiceName;
+                option.value = voices[voiceName]; // voiceName adalah nilai Gemini TTS
+                voiceSelect.appendChild(option);
+            });
+            
+            if (voiceSelect.options.length === 0) {
+                 showStatus("⚠️ Tidak ada suara tersedia untuk bahasa ini.", 'warning');
+            } else {
+                hideStatus();
+            }
+        }
+        
+        // Panggil inisialisasi selektor saat load
+        populateSelectors();
+        
+        // --- EVENT HANDLERS ---
+        
+        // 1. Perubahan Bahasa
+        languageSelect.addEventListener('change', updateVoiceList);
+
+        // 2. Tombol Bicara (Memanggil Gemini API)
+        speakButton.addEventListener('click', async () => {
+            const text = textInput.value.trim();
+            if (text === '') {
+                showStatus("Masukkan teks yang ingin diucapkan terlebih dahulu!", 'warning');
+                return;
+            }
+            
+            // Hentikan pemutaran audio sebelumnya
+            audioPlayer.pause();
+            audioPlayer.src = '';
+            
+            hideStatus();
+            setProcessingState(true);
+            showStatus("⏳ Sedang memproses teks menjadi suara natural (membutuhkan waktu beberapa detik)...", 'warning');
+
+            const selectedLangName = languageSelect.value;
+            const langDetails = LANGUAGE_MAP[selectedLangName];
+            
+            const selectedVoice = voiceSelect.value;
+            const rate = parseFloat(rateSlider.value);
+            // Pitch dihapus dari logika
+            
+            // Menggabungkan bahasa dan kecepatan dalam prompt (PITCH DIHAPUS DARI PROMPT)
+            const promptInstruction = `Say in ${langDetails.language_code} with speed ${rate}x: "${text}"`; 
+            
+            // Buat payload untuk API
+            const payload = {
+                contents: [{
+                    parts: [{ 
+                        text: promptInstruction
+                    }]
+                }],
+                generationConfig: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: selectedVoice }
+                        }
+                    }
+                },
+            };
+
+            // Loop untuk exponential backoff
+            const maxRetries = 3;
+            let retryCount = 0;
+            let success = false;
+            let response;
+            let lastError = null;
+
+            while (retryCount < maxRetries && !success) {
+                try {
+                    const apiUrl = `${API_URL_BASE}?key=${apiKey}`;
+                    
+                    response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    if (response.status === 429) {
+                        // Too Many Requests - hit rate limit, try again with backoff
+                        throw new Error("Rate limit exceeded (429)");
+                    }
+                    
+                    if (!response.ok) {
+                        throw new Error(`API returned status ${response.status}: ${response.statusText}`);
+                    }
+                    
+                    success = true;
+                } catch (error) {
+                    lastError = error;
+                    retryCount++;
+                    if (retryCount < maxRetries) {
+                        const delay = Math.pow(2, retryCount) * 1000; // 2s, 4s, 8s
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    }
+                }
+            }
+
+            if (!success || !response) {
+                setProcessingState(false);
+                showStatus(`❌ Gagal menghasilkan suara setelah ${maxRetries} percobaan. Error: ${lastError ? lastError.message : 'Unknown API Error'}`, 'error');
+                return;
+            }
+
+            try {
+                const result = await response.json();
+                const part = result?.candidates?.[0]?.content?.parts?.[0];
+                const audioData = part?.inlineData?.data;
+                const mimeType = part?.inlineData?.mimeType;
+
+                if (audioData && mimeType && mimeType.startsWith("audio/L16")) {
+                    // Ekstrak sample rate dari mimeType (misal: audio/L16; rate=24000)
+                    const rateMatch = mimeType.match(/rate=(\d+)/);
+                    const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 24000; 
+
+                    // Konversi Base64 ke ArrayBuffer
+                    const pcmDataBuffer = base64ToArrayBuffer(audioData);
+                    // API mengembalikan PCM 16-bit signed
+                    const pcm16 = new Int16Array(pcmDataBuffer); 
+
+                    // Konversi PCM ke Blob WAV
+                    const wavBlob = pcmToWav(pcm16, sampleRate);
+                    
+                    // Mainkan Audio
+                    playAudio(wavBlob);
+                    hideStatus();
+                    
+                } else {
+                    // Cek error dari API (misalnya teks diblokir atau format prompt salah)
+                    const errorReason = result?.candidates?.[0]?.finishReason || 'API response missing audio data.';
+                    const safetyIssue = result?.candidates?.[0]?.safetyRatings?.[0]?.category || 'N/A';
+                    
+                    let errorMessage = `Sintesis gagal. Alasan: ${errorReason}.`;
+                    if (safetyIssue !== 'N/A') {
+                        errorMessage = `❌ Kesalahan Keamanan Konten: Teks Anda mungkin melanggar kebijakan. Kategori: ${safetyIssue}`;
+                    }
+
+                    showStatus(`❌ ${errorMessage}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`❌ Gagal memproses data audio: ${error.message}`, 'error');
+                console.error('Processing Error:', error);
+            } finally {
+                setProcessingState(false);
+            }
+        });
+
+        // 3. Tombol Stop
+        stopButton.addEventListener('click', () => {
+            audioPlayer.pause();
+            audioPlayer.currentTime = 0;
+            setProcessingState(false, false);
+            hideStatus();
+        });
+        
+        // 4. Status saat audio dimainkan
+        audioPlayer.addEventListener('play', () => {
+            setProcessingState(false, true);
+        });
+        audioPlayer.addEventListener('pause', () => {
+            setProcessingState(false, false);
+        });
+        audioPlayer.addEventListener('ended', () => {
+            setProcessingState(false, false);
+        });
+
+        // 5. Slider Kecepatan
+        rateSlider.addEventListener('input', () => {
+            rateValueSpan.textContent = rateSlider.value;
+        });
+        
+        // 6. Penghitung Karakter
+        textInput.addEventListener('input', () => {
+            const currentLength = textInput.value.length;
+            const maxLength = textInput.getAttribute('maxlength');
+            charCount.textContent = `Karakter: ${currentLength}/${maxLength}`;
+        });
+        textInput.dispatchEvent(new Event('input')); // Panggil untuk inisialisasi hitungan
+        
+        // Inisialisasi state tombol saat pertama kali load
+        setProcessingState(false);
+
+    </script>
+</body>
+</html>
