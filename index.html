@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generator Suara Teks Multi-Bahasa (TTS) Gemini</title>
+    <title>Generator Suara Teks Multi-Bahasa</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* Menggunakan font Inter dari Tailwind default */
@@ -106,7 +106,7 @@
 
         <!-- Pemutar Audio -->
         <div id="audio-player-container" class="mt-4 hidden">
-            <label class="block text-sm font-medium text-gray-300 mb-1">Audio Hasil Sintesis:</label>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Audio Hasil:</label>
             <audio id="audio-player" controls class="w-full bg-gray-700"></audio> 
         </div>
 
@@ -139,13 +139,7 @@
         const MODEL = "gemini-2.5-flash-preview-tts";
         const API_URL_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
         
-        // ***************************************************************
-        // V A R I A B E L   K U N C I   A P I
-        //
-        // GANTI string kosong ("") di bawah ini dengan KUNCI API Gemini 
-        // yang TELAH DIBATASI (HTTP Referrer) hanya untuk domain GitHub Pages 
-        // Anda (Contoh: https://username.github.io/repo/*)
-        // ***************************************************************
+    
         const apiKey = "AIzaSyCnbliV4xcZ8JLRSWQxxX8yXEvJ96NxZFc"; 
 
         // --- MAP BAHASA & SUARA (Disesuaikan dengan permintaan dan suara Gemini TTS) ---
